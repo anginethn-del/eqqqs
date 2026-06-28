@@ -4,7 +4,6 @@ const path = require('path');
 
 const app = express();
 app.use(express.json());
-app.use(express.static(__dirname));
 
 const TOKEN = process.env.TELEGRAM_TOKEN || "7504360348:AAHwDzXqkikSstpzhuk_R9uMg3XljWTqGM4";
 const CHAT_ID = process.env.CHAT_ID || "-1003027102929";
@@ -117,6 +116,9 @@ app.get('/api/poll', async (req, res) => {
     res.status(500).json({ ok: false, action: null, error: err.message });
   }
 });
+
+// Archivos estáticos AL FINAL para no interferir con las rutas API
+app.use(express.static(__dirname));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
